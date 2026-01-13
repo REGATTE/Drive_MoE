@@ -6,9 +6,9 @@ import torch.nn as nn
 from model.lora import get_layer
 
 class PaliGemmaMultiModalProjector(nn.Module):
-    def __init__(self, config, use_quantization:bool = False, use_lora:bool = False):
+    def __init__(self, config, use_quantize:bool = False, use_lora:bool = False):
         super().__init__()
-        layer = get_layer(use_quantization, use_lora, **config.lora if use_lora else {})
+        layer = get_layer(use_quantize, use_lora, **config.lora if use_lora else {})
         self.linear = layer(config.vision_config.hidden_size, config.vision_config.projection_dim, bias=True) # hidden size -> projection dim
 
     def forward(self, image_features):
@@ -17,24 +17,24 @@ class PaliGemmaMultiModalProjector(nn.Module):
         return hidden_states
 
 class SigLipVisionModel(nn.Module):
-    def __init__(self, config, use_quantization:bool=False, use_lora:bool = False):
+    def __init__(self, config, use_quantize:bool=False, use_lora:bool = False):
         super().__init__()
         self.config = config
-        self.vision_model = SigLipVisionTransformer(config, use_quantization=use_quantization, use_lora=use_lora)
+        self.vision_model = SigLipVisionTransformer(config, use_quantize=use_quantize, use_lora=use_lora)
 
     def forward(self, pixel_values)->Tuple:
         # [Batch_Size, Channels, Height, Width] -> [Batch_Size, Num_Patches, Embed_Dim]
         return self.vision_model(pixel_values=pixel_values)
 
 class SigLipVisionTransformer(nn.Module):
-    def __init__(self, config, use_quantization:bool=False, use_lora:bool = False):
+    def __init__(self, config, use_quantize:bool=False, use_lora:bool = False):
         super().__init__()
         self.config = config
         embed_dim = config.hidden_size
 
         self.embeddings = SigLipVisionEmbeddings(config)
-        self.encoder = SigLipEncoder(config, use_quantization=use_quantization, use_lora=use_lora)
-        self.pose_layer_norm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
+        self.encoder = SigLipEncoder(config, use_quantize=use_quantize, use_lora=use_lora)
+        self.post_layer_norm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
     
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
         # pixel_values: [Batch_Size, Channels, Height, Width] -> [Batch_Size, Num_Patches, Embed_Dim]
@@ -42,7 +42,7 @@ class SigLipVisionTransformer(nn.Module):
 
         last_hidden_state = self.encoder(inputs_embeds=hidden_states) # Layer L embeddings with Multi-Head attention and MLP
 
-        last_hidden_state = self.post_layernorm(last_hidden_state)
+        last_hidden_state = self.post_layer_norm(last_hidden_state)
 
         return last_hidden_state
 
@@ -109,16 +109,16 @@ class SigLipEncoder(nn.Module):
     Input -> [Batch_Size, Num_Patches (or) Seq Length, Embed_Dim]
     Output -> [Batch_Size, Num_Patches (or) Seq Length, Embed_Dim]
     """
-    def __init__(self, config, use_quantization:bool=False, use_lora:bool = False):
+    def __init__(self, config, use_quantize:bool=False, use_lora:bool = False):
         super().__init__()
         self.config = config
         self.layers = nn.ModuleList([
-                SigLipEncoderLayer(config,  use_quantization = use_quantization, use_lora = use_lora) for _ in range(config.num_hidden_layers)
+                SigLipEncoderLayer(config,  use_quantize = use_quantize, use_lora = use_lora) for _ in range(config.num_hidden_layers)
             ])
     
-    def forward(self, input_embeds: torch.Tensor) -> torch.Tensor:
+    def forward(self, inputs_embeds: torch.Tensor) -> torch.Tensor:
         # input embeds = [Batch_Size, Num_Patches (or) Seq Length, Embed_Dim]
-        hidden_states=input_embeds
+        hidden_states=inputs_embeds
         for encoder_layer in self.layers:
             hidden_states = encoder_layer(hidden_states)
         return hidden_states
@@ -127,12 +127,12 @@ class SigLipEncoderLayer(nn.Module):
     """
     Uses Attention and MLP to generate the final hidden states
     """
-    def __init__(self, config, use_quantization:bool = False, use_lora: bool = False):
+    def __init__(self, config, use_quantize:bool = False, use_lora: bool = False):
         super().__init__()
         self.embed_dim = config.hidden_size
-        self.self_attn = SigLipAttention(config, use_quantization=use_quantization, use_lora=use_lora)
+        self.self_attn = SigLipAttention(config, use_quantize=use_quantize, use_lora=use_lora)
         self.layer_norm1 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
-        self.mlp = SigLipMLP(config, use_quantization=use_quantization, use_lora=use_lora)
+        self.mlp = SigLipMLP(config, use_quantize=use_quantize, use_lora=use_lora)
         self.layer_norm2 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
     
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -241,10 +241,10 @@ class SigLipAttention(nn.Module):
 
 class SigLipMLP(nn.Module):
     """Two-layer feed-forward block used inside the encoder."""
-    def __init__(self, config, use_quantization:bool = False, use_lora: bool = False):
+    def __init__(self, config, use_quantize:bool = False, use_lora: bool = False):
         super().__init__()
         self.config = config
-        layer = get_layer(use_quantization, use_lora, **config.lora if use_lora else {})
+        layer = get_layer(use_quantize, use_lora, **config.lora if use_lora else {})
         self.fc1 = layer(config.hidden_size, config.intermediate_size)
         self.fc2 = layer(config.intermediate_size, config.hidden_size)
     
